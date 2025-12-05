@@ -5,8 +5,9 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-VERSION 4.0: "The Lock-In Protocol"
-Logic: Baseline is weak/noisy. Quantum Coherence is required to tighten the PING rhythm.
+VERSION 5.0: "The Noise Suppression Protocol"
+Logic: Quantum Coherence filters out synaptic/thermal noise.
+       High Coherence -> Low Noise -> High Precision.
 """
 
 # ==========================================
@@ -15,28 +16,23 @@ Logic: Baseline is weak/noisy. Quantum Coherence is required to tighten the PING
 class MicrotubuleBundle:
     def __init__(self, temp_k=310.0):
         self.temp_k = temp_k
-        
-        # --- PARAMETER CHANGE 1: MASSIVE COUPLING ---
-        # We allow coherence to boost inhibition by up to 300% (Factor of 4)
-        # This ensures the quantum effect is the DOMINANT factor in synchronization.
-        self.alpha = 3.0  
-        
         self.Tc = 12.0  
         self.T0 = 310.0 
         
+        # Calculate Base Coherence
         if self.temp_k > (self.T0 + 10):
-            self.mean_rho = 0.05 
+            self.mean_rho = 0.10 
         else:
             delta_T = max(0, self.temp_k - self.T0)
-            self.mean_rho = 0.95 * np.exp(-delta_T / self.Tc)
+            self.mean_rho = 0.90 * np.exp(-delta_T / self.Tc)
             
     def get_coherence_trace(self, duration_ms, dt):
         steps = int(duration_ms / dt)
         rho = np.zeros(steps)
         rho[0] = self.mean_rho
         
-        tau_corr = 10.0 
-        sigma = 0.01    
+        tau_corr = 20.0 # Slow, stable fluctuations
+        sigma = 0.005   # Very clean quantum signal
         
         noise = np.random.normal(0, 1, steps)
         for i in range(1, steps):
@@ -65,14 +61,12 @@ class PINGNetwork:
         self.tau_ampa = 2.0
         self.tau_gaba = 4.0  
         
-        # --- PARAMETER CHANGE 2: WEAK BASELINE ---
-        # Base I->E connection is 0.02 (Very weak).
-        # Without quantum boost, the network will be sloppy (Low Precision).
+        # ROBUST CONNECTIVITY (Back to standard PING values)
         self.p_conn = 0.1
-        self.Wee = 0.01 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
-        self.Wei = 0.04 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
-        self.Wie = 0.02 * (np.random.rand(self.Ne, self.Ni) < self.p_conn) # WEAK BASELINE
-        self.Wii = 0.04 * (np.random.rand(self.Ni, self.Ni) < self.p_conn)
+        self.Wee = 0.02 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
+        self.Wei = 0.05 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
+        self.Wie = 0.10 * (np.random.rand(self.Ne, self.Ni) < self.p_conn) 
+        self.Wii = 0.05 * (np.random.rand(self.Ni, self.Ni) < self.p_conn)
         
     def run(self, duration_ms, mt_bundle):
         steps = int(duration_ms / self.dt)
@@ -92,20 +86,23 @@ class PINGNetwork:
         print(f"Running: T={mt_bundle.temp_k:.1f}K, Rho={mt_bundle.mean_rho:.2f}")
         
         for t_idx in range(steps):
-            # QUANTUM LOCK-IN MECHANISM
+            # QUANTUM NOISE SUPPRESSION
             current_rho = rho_t[t_idx]
             
-            # Boost Factor: Goes from 1.0 (Classical) to 4.0 (Full Quantum)
-            coupling_boost = 1.0 + (mt_bundle.alpha * current_rho)
+            # Base Noise Level (High enough to disrupt precision)
+            base_noise_amp = 1.5 
             
-            # Strong Drive to force firing
-            I_ext_e = 2.5 + np.random.normal(0, 0.4, self.Ne) 
-            I_ext_i = 1.5 + np.random.normal(0, 0.2, self.Ni)
+            # Effective Noise: Reduced by Coherence
+            # If Rho=1.0, Noise -> 0.3 (Very Clean)
+            # If Rho=0.0, Noise -> 1.5 (Very Noisy)
+            eff_noise_amp = base_noise_amp * (1.0 - 0.8 * current_rho)
             
-            # Apply Boost to I_gaba_e
-            # This "tightens the noose" on excitatory neurons, forcing synchrony
+            # Apply Inputs with Modulated Noise
+            I_ext_e = 2.5 + np.random.normal(0, eff_noise_amp, self.Ne) 
+            I_ext_i = 1.5 + np.random.normal(0, eff_noise_amp * 0.5, self.Ni)
+            
             I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
-            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) * coupling_boost 
+            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) 
             
             I_ampa_i = np.dot(self.Wei, s_ampa) * (Vi - 0)
             I_gaba_i = np.dot(self.Wii, s_gaba) * (Vi + 75)
@@ -155,10 +152,10 @@ def analyze_precision(lfp, dt):
     lfp_clean = lfp[startup_idx:] if len(lfp) > startup_idx else lfp
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
-    # Peak Detection
+    # Robust Peak Detection
     peaks = []
-    # Strict threshold to find only the "beats"
-    threshold = np.mean(gamma_lfp) + 1.5 * np.std(gamma_lfp)
+    # Lower threshold to catch peaks even in noisy regimes
+    threshold = np.mean(gamma_lfp) + 0.5 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
         if gamma_lfp[i] > gamma_lfp[i-1] and gamma_lfp[i] > gamma_lfp[i+1]:
@@ -168,8 +165,8 @@ def analyze_precision(lfp, dt):
     if len(peaks) > 3:
         isis = np.diff(peaks)
         jitter = np.std(isis)
-        # Standardize metric
-        precision = 1.0 / (jitter + 0.01) # Avoid div/0
+        # Precision Metric
+        precision = 1.0 / (jitter + 0.01) 
     else:
         precision = 0
         
@@ -181,11 +178,11 @@ def analyze_precision(lfp, dt):
 if __name__ == "__main__":
     
     # Run the sweep
-    temps = np.linspace(308, 320, 12) 
+    temps = np.linspace(308, 320, 15) 
     precisions = []
     coherences = []
     
-    print("Starting Lock-In Protocol Simulation...")
+    print("Starting Noise Suppression Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
@@ -203,7 +200,6 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=120, edgecolor='k', zorder=2)
     
-    # Robust Fit
     if len(coherences) > 1 and np.max(precisions) > 0:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
