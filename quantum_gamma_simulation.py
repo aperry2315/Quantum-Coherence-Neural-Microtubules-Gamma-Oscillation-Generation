@@ -1,4 +1,3 @@
-```python
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import hilbert
@@ -275,4 +274,3 @@ if __name__ == "__main__":
     output_file = 'gamma_correlation_plot.png'
     plt.savefig(output_file)
     print(f"\nSimulation Complete. Results saved to {output_file}")
-````
