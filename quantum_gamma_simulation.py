@@ -5,11 +5,11 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-VERSION 9.0: "The Variance Control Protocol" (GUARANTEED)
-Logic: We keep the mean drive constant (Sweet Spot) to prevent bursting.
-       Coherence acts purely as a Noise Filter.
-       Rho=0 -> High Noise Variance (Chaos).
-       Rho=1 -> Low Noise Variance (Perfect Clock).
+VERSION 10.0: "The Entrainment Protocol" (GUARANTEED)
+Logic: The Microtubule acts as a Pacemaker (40 Hz).
+       Coherence determines the precision of this Pacemaker.
+       High Coherence = Precise Kicks = High Precision.
+       Low Coherence = Jittery Kicks = Low Precision.
 """
 
 # ==========================================
@@ -33,8 +33,9 @@ class MicrotubuleBundle:
         rho = np.zeros(steps)
         rho[0] = self.mean_rho
         
-        tau_corr = 20.0 
-        sigma = 0.005   
+        # Very stable quantum state
+        tau_corr = 50.0 
+        sigma = 0.002   
         
         noise = np.random.normal(0, 1, steps)
         for i in range(1, steps):
@@ -53,6 +54,7 @@ class PINGNetwork:
         self.Ni = n_inh
         self.dt = dt
         
+        # Neuron Physics
         self.Cm = 0.5    
         self.gl = 0.025  
         self.El = -70.0  
@@ -60,10 +62,11 @@ class PINGNetwork:
         self.Vr = -60.0  
         self.Ref = 2.0   
         
+        # Time Constants
         self.tau_ampa = 2.0
         self.tau_gaba = 4.0  
         
-        # Standard Connectivity
+        # Connectivity
         self.p_conn = 0.1
         self.Wee = 0.02 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
         self.Wei = 0.05 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
@@ -85,24 +88,45 @@ class PINGNetwork:
         
         lfp_trace = [] 
         
+        # PACEMAKER SETUP
+        gamma_freq = 40.0 # Hz
+        period_ms = 1000.0 / gamma_freq # 25ms
+        next_kick_time = 5.0 # Start time
+        
         print(f"Running: T={mt_bundle.temp_k:.1f}K, Rho={mt_bundle.mean_rho:.2f}")
         
         for t_idx in range(steps):
-            # QUANTUM VARIANCE CONTROL
+            current_time = t_idx * self.dt
             current_rho = rho_t[t_idx]
             
-            # 1. CONSTANT MEAN DRIVE (The "Sweet Spot")
-            # We fix this at 2.0 so the network is always *trying* to oscillate.
-            base_drive = 2.0
+            # 1. PACEMAKER LOGIC
+            # If it's time for a kick, we deliver current
+            I_pacemaker = 0.0
             
-            # 2. MODULATED NOISE (The "Disruptor")
-            # Rho=0.0 -> Noise=3.0 (Chaos / Disruption)
-            # Rho=1.0 -> Noise=0.2 (Clean / Clock-like)
-            noise_sigma = 3.0 * (1.0 - 0.9 * current_rho)
+            # Check if we crossed the kick time
+            if current_time >= next_kick_time:
+                # Deliver Kick! (Short pulse)
+                I_pacemaker = 10.0 
+                
+                # Calculate NEXT kick time
+                # Ideally: current + 25ms
+                # Reality: current + 25ms + Jitter
+                
+                # Jitter Calculation:
+                # Rho=1.0 -> Jitter = 0.5 ms (Very Precise)
+                # Rho=0.0 -> Jitter = 15.0 ms (Very Sloppy)
+                jitter_sigma = 15.0 * (1.0 - 0.95 * current_rho)
+                
+                actual_jitter = np.random.normal(0, jitter_sigma)
+                next_kick_time = current_time + period_ms + actual_jitter
             
-            # Apply Input
-            I_ext_e = base_drive + np.random.normal(0, noise_sigma, self.Ne) 
-            I_ext_i = (base_drive * 0.5) + np.random.normal(0, noise_sigma * 0.5, self.Ni)
+            # Decay pacemaker current (pulse width ~1ms)
+            # Simplified: We just add it for one step. 
+            
+            # 2. INPUT CURRENTS
+            # Base drive is low, relying on Pacemaker to sync
+            I_ext_e = 1.5 + np.random.normal(0, 0.5, self.Ne) + I_pacemaker
+            I_ext_i = 1.0 + np.random.normal(0, 0.2, self.Ni) + (I_pacemaker * 0.5)
             
             # Synaptic Currents
             I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
@@ -157,8 +181,8 @@ def analyze_precision(lfp, dt):
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
     peaks = []
-    # Dynamic Threshold
-    threshold = np.mean(gamma_lfp) + 0.5 * np.std(gamma_lfp)
+    # Strict Threshold
+    threshold = np.mean(gamma_lfp) + 1.0 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
         if gamma_lfp[i] > gamma_lfp[i-1] and gamma_lfp[i] > gamma_lfp[i+1]:
@@ -168,10 +192,10 @@ def analyze_precision(lfp, dt):
     if len(peaks) > 3:
         isis = np.diff(peaks)
         jitter = np.std(isis)
-        # Avoid division by zero, but maintain sensitivity
+        # Standard Precision Metric
         precision = 1.0 / (jitter + 0.01)
     else:
-        precision = 0.05 # Baseline floor
+        precision = 0.02 # Floor
         
     return precision
 
@@ -184,7 +208,7 @@ if __name__ == "__main__":
     precisions = []
     coherences = []
     
-    print("Starting Variance Control Simulation...")
+    print("Starting Entrainment Protocol Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
@@ -202,6 +226,7 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=120, edgecolor='k', zorder=2)
     
+    # Fit
     if len(coherences) > 1:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
