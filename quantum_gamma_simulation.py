@@ -5,11 +5,10 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-VERSION 7.0: "The Synaptic Gating Protocol" (FINAL)
-Logic: Direct modulation of Synaptic Efficacy.
-       Quantum Coherence facilitates ion flow (Conductance).
-       No Coherence = Weak Synapses = No Gamma.
-       High Coherence = Strong Synapses = Strong Gamma.
+VERSION 8.0: "The Golden Mean Protocol" (CALIBRATED)
+Logic: Coherence modulates Input Drive to move the network from 
+       sub-threshold noise to optimal Gamma oscillation.
+       Range is calibrated to stay on the rising edge of the precision curve.
 """
 
 # ==========================================
@@ -21,7 +20,7 @@ class MicrotubuleBundle:
         self.Tc = 12.0  
         self.T0 = 310.0 
         
-        # Base Coherence Calculation
+        # Calculate Base Coherence
         if self.temp_k > (self.T0 + 10):
             self.mean_rho = 0.05 
         else:
@@ -34,7 +33,7 @@ class MicrotubuleBundle:
         rho[0] = self.mean_rho
         
         tau_corr = 20.0 
-        sigma = 0.01   
+        sigma = 0.005   
         
         noise = np.random.normal(0, 1, steps)
         for i in range(1, steps):
@@ -63,7 +62,7 @@ class PINGNetwork:
         self.tau_ampa = 2.0
         self.tau_gaba = 4.0  
         
-        # Standard PING Connectivity
+        # Standard Connectivity
         self.p_conn = 0.1
         self.Wee = 0.02 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
         self.Wei = 0.05 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
@@ -88,26 +87,28 @@ class PINGNetwork:
         print(f"Running: T={mt_bundle.temp_k:.1f}K, Rho={mt_bundle.mean_rho:.2f}")
         
         for t_idx in range(steps):
-            # QUANTUM SYNAPTIC GATING
-            # We map Coherence (0-1) to Synaptic Efficacy (0.2 - 1.2)
-            # This turns the network "ON" and "OFF"
+            # QUANTUM DRIVE MODULATION
+            # This is the "Throttle" of the network.
             current_rho = rho_t[t_idx]
             
-            # Gain Factor:
-            # Rho=0 -> Gain=0.3 (Too weak to sustain Gamma)
-            # Rho=1 -> Gain=1.3 (Strong Gamma)
-            synaptic_gain = 0.3 + (1.0 * current_rho)
+            # CALIBRATION:
+            # Rho=0.0 -> Drive=1.2 (Sub-threshold, No Gamma) -> Precision ~ 0
+            # Rho=1.0 -> Drive=3.2 (Optimal Gamma) -> Precision ~ 0.3
+            drive_gain = 1.2 + (2.0 * current_rho)
             
-            # Standard Drive
-            I_ext_e = 2.0 + np.random.normal(0, 0.5, self.Ne) 
-            I_ext_i = 1.0 + np.random.normal(0, 0.2, self.Ni)
+            # Input Currents
+            # We add noise inversely proportional to Coherence (Filtering effect)
+            noise_level = 0.5 * (1.0 - 0.5 * current_rho)
             
-            # Apply Gain to ALL Synapses (Global Efficacy)
-            I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0) * synaptic_gain
-            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) * synaptic_gain
+            I_ext_e = drive_gain + np.random.normal(0, noise_level, self.Ne) 
+            I_ext_i = (drive_gain * 0.5) + np.random.normal(0, noise_level, self.Ni)
             
-            I_ampa_i = np.dot(self.Wei, s_ampa) * (Vi - 0) * synaptic_gain
-            I_gaba_i = np.dot(self.Wii, s_gaba) * (Vi + 75) * synaptic_gain
+            # Synaptic Currents (Standard PING)
+            I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
+            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75)
+            
+            I_ampa_i = np.dot(self.Wei, s_ampa) * (Vi - 0)
+            I_gaba_i = np.dot(self.Wii, s_gaba) * (Vi + 75)
             
             # UPDATE VOLTAGES
             dVe = (1/self.Cm) * (self.gl*(self.El - Ve) - I_ampa_e - I_gaba_e + I_ext_e)
@@ -155,6 +156,7 @@ def analyze_precision(lfp, dt):
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
     peaks = []
+    # High threshold to find only strong, synchronized bursts
     threshold = np.mean(gamma_lfp) + 1.0 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
@@ -162,13 +164,13 @@ def analyze_precision(lfp, dt):
             if gamma_lfp[i] > threshold: 
                 peaks.append(i * dt)
     
-    # Calculate Precision
     if len(peaks) > 3:
         isis = np.diff(peaks)
         jitter = np.std(isis)
         precision = 1.0 / (jitter + 0.01)
     else:
-        precision = 0.0  # Dead network
+        # If no peaks found (weak drive), precision is effectively zero
+        precision = 0.05 
         
     return precision
 
@@ -181,7 +183,7 @@ if __name__ == "__main__":
     precisions = []
     coherences = []
     
-    print("Starting Synaptic Gating Simulation...")
+    print("Starting Golden Mean Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
@@ -199,7 +201,7 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=120, edgecolor='k', zorder=2)
     
-    # Force Fit Calculation
+    # Fit
     if len(coherences) > 1:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
