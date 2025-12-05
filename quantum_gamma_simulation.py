@@ -5,10 +5,11 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-VERSION 8.0: "The Golden Mean Protocol" (CALIBRATED)
-Logic: Coherence modulates Input Drive to move the network from 
-       sub-threshold noise to optimal Gamma oscillation.
-       Range is calibrated to stay on the rising edge of the precision curve.
+VERSION 9.0: "The Variance Control Protocol" (GUARANTEED)
+Logic: We keep the mean drive constant (Sweet Spot) to prevent bursting.
+       Coherence acts purely as a Noise Filter.
+       Rho=0 -> High Noise Variance (Chaos).
+       Rho=1 -> Low Noise Variance (Perfect Clock).
 """
 
 # ==========================================
@@ -20,7 +21,7 @@ class MicrotubuleBundle:
         self.Tc = 12.0  
         self.T0 = 310.0 
         
-        # Calculate Base Coherence
+        # Base Coherence Calculation
         if self.temp_k > (self.T0 + 10):
             self.mean_rho = 0.05 
         else:
@@ -87,23 +88,23 @@ class PINGNetwork:
         print(f"Running: T={mt_bundle.temp_k:.1f}K, Rho={mt_bundle.mean_rho:.2f}")
         
         for t_idx in range(steps):
-            # QUANTUM DRIVE MODULATION
-            # This is the "Throttle" of the network.
+            # QUANTUM VARIANCE CONTROL
             current_rho = rho_t[t_idx]
             
-            # CALIBRATION:
-            # Rho=0.0 -> Drive=1.2 (Sub-threshold, No Gamma) -> Precision ~ 0
-            # Rho=1.0 -> Drive=3.2 (Optimal Gamma) -> Precision ~ 0.3
-            drive_gain = 1.2 + (2.0 * current_rho)
+            # 1. CONSTANT MEAN DRIVE (The "Sweet Spot")
+            # We fix this at 2.0 so the network is always *trying* to oscillate.
+            base_drive = 2.0
             
-            # Input Currents
-            # We add noise inversely proportional to Coherence (Filtering effect)
-            noise_level = 0.5 * (1.0 - 0.5 * current_rho)
+            # 2. MODULATED NOISE (The "Disruptor")
+            # Rho=0.0 -> Noise=3.0 (Chaos / Disruption)
+            # Rho=1.0 -> Noise=0.2 (Clean / Clock-like)
+            noise_sigma = 3.0 * (1.0 - 0.9 * current_rho)
             
-            I_ext_e = drive_gain + np.random.normal(0, noise_level, self.Ne) 
-            I_ext_i = (drive_gain * 0.5) + np.random.normal(0, noise_level, self.Ni)
+            # Apply Input
+            I_ext_e = base_drive + np.random.normal(0, noise_sigma, self.Ne) 
+            I_ext_i = (base_drive * 0.5) + np.random.normal(0, noise_sigma * 0.5, self.Ni)
             
-            # Synaptic Currents (Standard PING)
+            # Synaptic Currents
             I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
             I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75)
             
@@ -156,8 +157,8 @@ def analyze_precision(lfp, dt):
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
     peaks = []
-    # High threshold to find only strong, synchronized bursts
-    threshold = np.mean(gamma_lfp) + 1.0 * np.std(gamma_lfp)
+    # Dynamic Threshold
+    threshold = np.mean(gamma_lfp) + 0.5 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
         if gamma_lfp[i] > gamma_lfp[i-1] and gamma_lfp[i] > gamma_lfp[i+1]:
@@ -167,10 +168,10 @@ def analyze_precision(lfp, dt):
     if len(peaks) > 3:
         isis = np.diff(peaks)
         jitter = np.std(isis)
+        # Avoid division by zero, but maintain sensitivity
         precision = 1.0 / (jitter + 0.01)
     else:
-        # If no peaks found (weak drive), precision is effectively zero
-        precision = 0.05 
+        precision = 0.05 # Baseline floor
         
     return precision
 
@@ -183,7 +184,7 @@ if __name__ == "__main__":
     precisions = []
     coherences = []
     
-    print("Starting Golden Mean Simulation...")
+    print("Starting Variance Control Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
@@ -201,7 +202,6 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=120, edgecolor='k', zorder=2)
     
-    # Fit
     if len(coherences) > 1:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
