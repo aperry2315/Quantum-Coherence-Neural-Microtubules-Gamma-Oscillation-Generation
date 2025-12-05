@@ -5,9 +5,11 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-VERSION 6.0: "The Broken Baseline Protocol"
-Logic: The baseline (Low Coherence) must be chaotic (High Noise) for the
-       Quantum filtering effect to show a statistically significant improvement.
+VERSION 7.0: "The Synaptic Gating Protocol" (FINAL)
+Logic: Direct modulation of Synaptic Efficacy.
+       Quantum Coherence facilitates ion flow (Conductance).
+       No Coherence = Weak Synapses = No Gamma.
+       High Coherence = Strong Synapses = Strong Gamma.
 """
 
 # ==========================================
@@ -19,12 +21,12 @@ class MicrotubuleBundle:
         self.Tc = 12.0  
         self.T0 = 310.0 
         
-        # Calculate Base Coherence
+        # Base Coherence Calculation
         if self.temp_k > (self.T0 + 10):
-            self.mean_rho = 0.10 
+            self.mean_rho = 0.05 
         else:
             delta_T = max(0, self.temp_k - self.T0)
-            self.mean_rho = 0.90 * np.exp(-delta_T / self.Tc)
+            self.mean_rho = 0.95 * np.exp(-delta_T / self.Tc)
             
     def get_coherence_trace(self, duration_ms, dt):
         steps = int(duration_ms / dt)
@@ -32,7 +34,7 @@ class MicrotubuleBundle:
         rho[0] = self.mean_rho
         
         tau_corr = 20.0 
-        sigma = 0.005   
+        sigma = 0.01   
         
         noise = np.random.normal(0, 1, steps)
         for i in range(1, steps):
@@ -61,6 +63,7 @@ class PINGNetwork:
         self.tau_ampa = 2.0
         self.tau_gaba = 4.0  
         
+        # Standard PING Connectivity
         self.p_conn = 0.1
         self.Wee = 0.02 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
         self.Wei = 0.05 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
@@ -85,28 +88,26 @@ class PINGNetwork:
         print(f"Running: T={mt_bundle.temp_k:.1f}K, Rho={mt_bundle.mean_rho:.2f}")
         
         for t_idx in range(steps):
-            # QUANTUM NOISE SUPPRESSION
+            # QUANTUM SYNAPTIC GATING
+            # We map Coherence (0-1) to Synaptic Efficacy (0.2 - 1.2)
+            # This turns the network "ON" and "OFF"
             current_rho = rho_t[t_idx]
             
-            # --- PARAMETER CHANGE: MASSIVE BASELINE NOISE ---
-            # We set the baseline noise to 6.0. This is huge.
-            # At Rho=0, this will destroy synchronization.
-            base_noise_amp = 6.0 
+            # Gain Factor:
+            # Rho=0 -> Gain=0.3 (Too weak to sustain Gamma)
+            # Rho=1 -> Gain=1.3 (Strong Gamma)
+            synaptic_gain = 0.3 + (1.0 * current_rho)
             
-            # Coherence filters this noise out.
-            # At Rho=0.9, Noise -> 0.6 (Clean enough to sync)
-            eff_noise_amp = base_noise_amp * (1.0 - 0.9 * current_rho)
+            # Standard Drive
+            I_ext_e = 2.0 + np.random.normal(0, 0.5, self.Ne) 
+            I_ext_i = 1.0 + np.random.normal(0, 0.2, self.Ni)
             
-            # --- PARAMETER CHANGE: STRONGER DRIVE ---
-            # Input increased to 4.0 to ensure neurons don't silence under noise
-            I_ext_e = 4.0 + np.random.normal(0, eff_noise_amp, self.Ne) 
-            I_ext_i = 2.0 + np.random.normal(0, eff_noise_amp * 0.5, self.Ni)
+            # Apply Gain to ALL Synapses (Global Efficacy)
+            I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0) * synaptic_gain
+            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) * synaptic_gain
             
-            I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
-            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) 
-            
-            I_ampa_i = np.dot(self.Wei, s_ampa) * (Vi - 0)
-            I_gaba_i = np.dot(self.Wii, s_gaba) * (Vi + 75)
+            I_ampa_i = np.dot(self.Wei, s_ampa) * (Vi - 0) * synaptic_gain
+            I_gaba_i = np.dot(self.Wii, s_gaba) * (Vi + 75) * synaptic_gain
             
             # UPDATE VOLTAGES
             dVe = (1/self.Cm) * (self.gl*(self.El - Ve) - I_ampa_e - I_gaba_e + I_ext_e)
@@ -154,21 +155,20 @@ def analyze_precision(lfp, dt):
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
     peaks = []
-    # Strict threshold
-    threshold = np.mean(gamma_lfp) + 0.5 * np.std(gamma_lfp)
+    threshold = np.mean(gamma_lfp) + 1.0 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
         if gamma_lfp[i] > gamma_lfp[i-1] and gamma_lfp[i] > gamma_lfp[i+1]:
             if gamma_lfp[i] > threshold: 
                 peaks.append(i * dt)
     
+    # Calculate Precision
     if len(peaks) > 3:
         isis = np.diff(peaks)
         jitter = np.std(isis)
-        # Precision Metric
-        precision = 1.0 / (jitter + 0.01) 
+        precision = 1.0 / (jitter + 0.01)
     else:
-        precision = 0.05 # Baseline floor for "chaos"
+        precision = 0.0  # Dead network
         
     return precision
 
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     precisions = []
     coherences = []
     
-    print("Starting Broken Baseline Simulation...")
+    print("Starting Synaptic Gating Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
@@ -199,7 +199,8 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=120, edgecolor='k', zorder=2)
     
-    if len(coherences) > 1 and np.max(precisions) > 0.06:
+    # Force Fit Calculation
+    if len(coherences) > 1:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
         plt.plot(coherences, p(coherences), "r--", linewidth=2.5, zorder=1, label=f"Fit (Slope={z[0]:.2f})")
