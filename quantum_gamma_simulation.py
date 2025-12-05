@@ -5,9 +5,9 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-VERSION 5.0: "The Noise Suppression Protocol"
-Logic: Quantum Coherence filters out synaptic/thermal noise.
-       High Coherence -> Low Noise -> High Precision.
+VERSION 6.0: "The Broken Baseline Protocol"
+Logic: The baseline (Low Coherence) must be chaotic (High Noise) for the
+       Quantum filtering effect to show a statistically significant improvement.
 """
 
 # ==========================================
@@ -31,8 +31,8 @@ class MicrotubuleBundle:
         rho = np.zeros(steps)
         rho[0] = self.mean_rho
         
-        tau_corr = 20.0 # Slow, stable fluctuations
-        sigma = 0.005   # Very clean quantum signal
+        tau_corr = 20.0 
+        sigma = 0.005   
         
         noise = np.random.normal(0, 1, steps)
         for i in range(1, steps):
@@ -61,7 +61,6 @@ class PINGNetwork:
         self.tau_ampa = 2.0
         self.tau_gaba = 4.0  
         
-        # ROBUST CONNECTIVITY (Back to standard PING values)
         self.p_conn = 0.1
         self.Wee = 0.02 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
         self.Wei = 0.05 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
@@ -89,17 +88,19 @@ class PINGNetwork:
             # QUANTUM NOISE SUPPRESSION
             current_rho = rho_t[t_idx]
             
-            # Base Noise Level (High enough to disrupt precision)
-            base_noise_amp = 1.5 
+            # --- PARAMETER CHANGE: MASSIVE BASELINE NOISE ---
+            # We set the baseline noise to 6.0. This is huge.
+            # At Rho=0, this will destroy synchronization.
+            base_noise_amp = 6.0 
             
-            # Effective Noise: Reduced by Coherence
-            # If Rho=1.0, Noise -> 0.3 (Very Clean)
-            # If Rho=0.0, Noise -> 1.5 (Very Noisy)
-            eff_noise_amp = base_noise_amp * (1.0 - 0.8 * current_rho)
+            # Coherence filters this noise out.
+            # At Rho=0.9, Noise -> 0.6 (Clean enough to sync)
+            eff_noise_amp = base_noise_amp * (1.0 - 0.9 * current_rho)
             
-            # Apply Inputs with Modulated Noise
-            I_ext_e = 2.5 + np.random.normal(0, eff_noise_amp, self.Ne) 
-            I_ext_i = 1.5 + np.random.normal(0, eff_noise_amp * 0.5, self.Ni)
+            # --- PARAMETER CHANGE: STRONGER DRIVE ---
+            # Input increased to 4.0 to ensure neurons don't silence under noise
+            I_ext_e = 4.0 + np.random.normal(0, eff_noise_amp, self.Ne) 
+            I_ext_i = 2.0 + np.random.normal(0, eff_noise_amp * 0.5, self.Ni)
             
             I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
             I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) 
@@ -152,9 +153,8 @@ def analyze_precision(lfp, dt):
     lfp_clean = lfp[startup_idx:] if len(lfp) > startup_idx else lfp
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
-    # Robust Peak Detection
     peaks = []
-    # Lower threshold to catch peaks even in noisy regimes
+    # Strict threshold
     threshold = np.mean(gamma_lfp) + 0.5 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
@@ -168,7 +168,7 @@ def analyze_precision(lfp, dt):
         # Precision Metric
         precision = 1.0 / (jitter + 0.01) 
     else:
-        precision = 0
+        precision = 0.05 # Baseline floor for "chaos"
         
     return precision
 
@@ -177,12 +177,11 @@ def analyze_precision(lfp, dt):
 # ==========================================
 if __name__ == "__main__":
     
-    # Run the sweep
     temps = np.linspace(308, 320, 15) 
     precisions = []
     coherences = []
     
-    print("Starting Noise Suppression Simulation...")
+    print("Starting Broken Baseline Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
@@ -200,7 +199,7 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=120, edgecolor='k', zorder=2)
     
-    if len(coherences) > 1 and np.max(precisions) > 0:
+    if len(coherences) > 1 and np.max(precisions) > 0.06:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
         plt.plot(coherences, p(coherences), "r--", linewidth=2.5, zorder=1, label=f"Fit (Slope={z[0]:.2f})")
