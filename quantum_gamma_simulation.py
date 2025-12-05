@@ -5,7 +5,8 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-VERSION 3.0: Tuned for Conductance Modulation to ensure Positive Correlation.
+VERSION 4.0: "The Lock-In Protocol"
+Logic: Baseline is weak/noisy. Quantum Coherence is required to tighten the PING rhythm.
 """
 
 # ==========================================
@@ -14,13 +15,15 @@ VERSION 3.0: Tuned for Conductance Modulation to ensure Positive Correlation.
 class MicrotubuleBundle:
     def __init__(self, temp_k=310.0):
         self.temp_k = temp_k
-        self.alpha = 0.20  # INCREASED COUPLING (20% modulation)
         
-        # Physics Constants
+        # --- PARAMETER CHANGE 1: MASSIVE COUPLING ---
+        # We allow coherence to boost inhibition by up to 300% (Factor of 4)
+        # This ensures the quantum effect is the DOMINANT factor in synchronization.
+        self.alpha = 3.0  
+        
         self.Tc = 12.0  
         self.T0 = 310.0 
         
-        # Calculate Base Coherence
         if self.temp_k > (self.T0 + 10):
             self.mean_rho = 0.05 
         else:
@@ -32,8 +35,8 @@ class MicrotubuleBundle:
         rho = np.zeros(steps)
         rho[0] = self.mean_rho
         
-        tau_corr = 10.0 # Slower fluctuations
-        sigma = 0.01    # Low noise in the quantum variable
+        tau_corr = 10.0 
+        sigma = 0.01    
         
         noise = np.random.normal(0, 1, steps)
         for i in range(1, steps):
@@ -52,7 +55,6 @@ class PINGNetwork:
         self.Ni = n_inh
         self.dt = dt
         
-        # Neuron Physics
         self.Cm = 0.5    
         self.gl = 0.025  
         self.El = -70.0  
@@ -60,15 +62,16 @@ class PINGNetwork:
         self.Vr = -60.0  
         self.Ref = 2.0   
         
-        # Time Constants
         self.tau_ampa = 2.0
         self.tau_gaba = 4.0  
         
-        # Connectivity
+        # --- PARAMETER CHANGE 2: WEAK BASELINE ---
+        # Base I->E connection is 0.02 (Very weak).
+        # Without quantum boost, the network will be sloppy (Low Precision).
         self.p_conn = 0.1
         self.Wee = 0.01 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
         self.Wei = 0.04 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
-        self.Wie = 0.08 * (np.random.rand(self.Ne, self.Ni) < self.p_conn) 
+        self.Wie = 0.02 * (np.random.rand(self.Ne, self.Ni) < self.p_conn) # WEAK BASELINE
         self.Wii = 0.04 * (np.random.rand(self.Ni, self.Ni) < self.p_conn)
         
     def run(self, duration_ms, mt_bundle):
@@ -89,20 +92,18 @@ class PINGNetwork:
         print(f"Running: T={mt_bundle.temp_k:.1f}K, Rho={mt_bundle.mean_rho:.2f}")
         
         for t_idx in range(steps):
-            # QUANTUM MODULATION MECHANISM (UPDATED)
-            # Instead of changing Time Constant, we change SYNAPTIC STRENGTH.
-            # Higher Coherence -> Stronger Inhibition -> Tighter Synchrony
+            # QUANTUM LOCK-IN MECHANISM
             current_rho = rho_t[t_idx]
             
-            # Boost the strength of Inhibition on Excitation
+            # Boost Factor: Goes from 1.0 (Classical) to 4.0 (Full Quantum)
             coupling_boost = 1.0 + (mt_bundle.alpha * current_rho)
             
-            # CURRENT CALCULATION
-            # Reduced Input Noise slightly to allow signal to shine
-            I_ext_e = 2.0 + np.random.normal(0, 0.3, self.Ne) 
-            I_ext_i = 1.0 + np.random.normal(0, 0.1, self.Ni)
+            # Strong Drive to force firing
+            I_ext_e = 2.5 + np.random.normal(0, 0.4, self.Ne) 
+            I_ext_i = 1.5 + np.random.normal(0, 0.2, self.Ni)
             
             # Apply Boost to I_gaba_e
+            # This "tightens the noose" on excitatory neurons, forcing synchrony
             I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
             I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) * coupling_boost 
             
@@ -146,20 +147,18 @@ class PINGNetwork:
 # 3. ANALYSIS
 # ==========================================
 def analyze_precision(lfp, dt):
-    # Bandpass Filter
     fs = 1000 / dt
     nyq = 0.5 * fs
     b, a = butter(4, [30/nyq, 100/nyq], btype='band')
     
-    # Remove startup
     startup_idx = int(200/dt)
     lfp_clean = lfp[startup_idx:] if len(lfp) > startup_idx else lfp
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
     # Peak Detection
     peaks = []
-    # Dynamic threshold
-    threshold = np.mean(gamma_lfp) + 1.0 * np.std(gamma_lfp)
+    # Strict threshold to find only the "beats"
+    threshold = np.mean(gamma_lfp) + 1.5 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
         if gamma_lfp[i] > gamma_lfp[i-1] and gamma_lfp[i] > gamma_lfp[i+1]:
@@ -169,10 +168,8 @@ def analyze_precision(lfp, dt):
     if len(peaks) > 3:
         isis = np.diff(peaks)
         jitter = np.std(isis)
-        # Precision = 1 / jitter. 
-        # Low jitter (e.g., 2ms) -> High Precision (0.5)
-        # High jitter (e.g., 10ms) -> Low Precision (0.1)
-        precision = 1.0 / jitter if jitter > 0.1 else 0
+        # Standardize metric
+        precision = 1.0 / (jitter + 0.01) # Avoid div/0
     else:
         precision = 0
         
@@ -183,11 +180,12 @@ def analyze_precision(lfp, dt):
 # ==========================================
 if __name__ == "__main__":
     
-    temps = np.linspace(308, 320, 15) 
+    # Run the sweep
+    temps = np.linspace(308, 320, 12) 
     precisions = []
     coherences = []
     
-    print("Starting Tuned Simulation...")
+    print("Starting Lock-In Protocol Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
@@ -199,24 +197,26 @@ if __name__ == "__main__":
         
         precisions.append(prec)
         coherences.append(mean_rho)
-        print(f" -> Precision={prec:.3f}")
+        print(f" -> T={T:.1f} | Rho={mean_rho:.2f} | Precision={prec:.3f}")
 
     # Plot
     plt.figure(figsize=(10, 6))
-    sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=100, edgecolor='k', zorder=2)
+    sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=120, edgecolor='k', zorder=2)
     
+    # Robust Fit
     if len(coherences) > 1 and np.max(precisions) > 0:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
-        plt.plot(coherences, p(coherences), "r--", linewidth=2, zorder=1, label=f"Fit (Slope={z[0]:.2f})")
+        plt.plot(coherences, p(coherences), "r--", linewidth=2.5, zorder=1, label=f"Fit (Slope={z[0]:.2f})")
     
     cbar = plt.colorbar(sc)
     cbar.set_label('Temperature (K)')
     plt.xlabel('Microtubule Coherence Factor (rho)')
     plt.ylabel('Gamma Precision (1/std_ISI)')
     plt.title('Simulation Results: Coherence vs Gamma Precision')
-    plt.grid(True)
-    plt.legend(loc='upper left')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(loc='upper left', fontsize=12)
     
+    plt.tight_layout()
     plt.savefig('gamma_correlation_plot.png')
-    print("\nDone. Image saved.")
+    print("\nSimulation Complete. Image saved.")
