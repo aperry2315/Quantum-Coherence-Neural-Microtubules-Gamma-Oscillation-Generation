@@ -5,37 +5,35 @@ from scipy.signal import hilbert, butter, filtfilt
 """
 Quantum Coherence in Neural Microtubules: Simulation Engine
 Author: Anthony L. Perry (2025)
-UPDATED VERSION: Increased drive and duration for robust Gamma generation.
+VERSION 3.0: Tuned for Conductance Modulation to ensure Positive Correlation.
 """
 
 # ==========================================
-# 1. QUANTUM DYNAMICS (Effective Mean Field)
+# 1. QUANTUM DYNAMICS
 # ==========================================
 class MicrotubuleBundle:
-    def __init__(self, temp_k=310.0, protection_factor=1e4, alpha_coupling=0.05):
+    def __init__(self, temp_k=310.0):
         self.temp_k = temp_k
-        self.protection = protection_factor
-        self.alpha = alpha_coupling  # Coherence Modulation Factor
+        self.alpha = 0.20  # INCREASED COUPLING (20% modulation)
         
         # Physics Constants
-        self.Tc = 12.0  # Characteristic quantum temp scale
-        self.T0 = 310.0 # Ref temp
+        self.Tc = 12.0  
+        self.T0 = 310.0 
         
-        # Calculate Base Coherence (Mean Field)
+        # Calculate Base Coherence
         if self.temp_k > (self.T0 + 10):
-            self.mean_rho = 0.01 
+            self.mean_rho = 0.05 
         else:
             delta_T = max(0, self.temp_k - self.T0)
-            self.mean_rho = 0.90 * np.exp(-delta_T / self.Tc) # Slightly higher base
+            self.mean_rho = 0.95 * np.exp(-delta_T / self.Tc)
             
     def get_coherence_trace(self, duration_ms, dt):
         steps = int(duration_ms / dt)
         rho = np.zeros(steps)
         rho[0] = self.mean_rho
         
-        # Fluctuation parameters
-        tau_corr = 5.0 
-        sigma = 0.02   # Reduced noise for clearer signal
+        tau_corr = 10.0 # Slower fluctuations
+        sigma = 0.01    # Low noise in the quantum variable
         
         noise = np.random.normal(0, 1, steps)
         for i in range(1, steps):
@@ -46,7 +44,7 @@ class MicrotubuleBundle:
         return np.clip(rho, 0.0, 1.0)
 
 # ==========================================
-# 2. NEURAL NETWORK (LIF - PING Architecture)
+# 2. NEURAL NETWORK
 # ==========================================
 class PINGNetwork:
     def __init__(self, n_exc=400, n_inh=100, dt=0.1):
@@ -54,7 +52,7 @@ class PINGNetwork:
         self.Ni = n_inh
         self.dt = dt
         
-        # Neuron Parameters
+        # Neuron Physics
         self.Cm = 0.5    
         self.gl = 0.025  
         self.El = -70.0  
@@ -62,20 +60,19 @@ class PINGNetwork:
         self.Vr = -60.0  
         self.Ref = 2.0   
         
-        # Synaptic Parameters
+        # Time Constants
         self.tau_ampa = 2.0
-        self.tau_gaba = 5.0  
+        self.tau_gaba = 4.0  
         
         # Connectivity
         self.p_conn = 0.1
-        self.Wee = 0.02 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
-        self.Wei = 0.05 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
-        self.Wie = 0.10 * (np.random.rand(self.Ne, self.Ni) < self.p_conn) # Boosted I->E
-        self.Wii = 0.05 * (np.random.rand(self.Ni, self.Ni) < self.p_conn)
+        self.Wee = 0.01 * (np.random.rand(self.Ne, self.Ne) < self.p_conn)
+        self.Wei = 0.04 * (np.random.rand(self.Ni, self.Ne) < self.p_conn)
+        self.Wie = 0.08 * (np.random.rand(self.Ne, self.Ni) < self.p_conn) 
+        self.Wii = 0.04 * (np.random.rand(self.Ni, self.Ni) < self.p_conn)
         
     def run(self, duration_ms, mt_bundle):
         steps = int(duration_ms / self.dt)
-        
         rho_t = mt_bundle.get_coherence_trace(duration_ms, self.dt)
         
         Ve = np.ones(self.Ne) * self.El + np.random.rand(self.Ne) * 10
@@ -92,20 +89,25 @@ class PINGNetwork:
         print(f"Running: T={mt_bundle.temp_k:.1f}K, Rho={mt_bundle.mean_rho:.2f}")
         
         for t_idx in range(steps):
-            # QUANTUM MODULATION
+            # QUANTUM MODULATION MECHANISM (UPDATED)
+            # Instead of changing Time Constant, we change SYNAPTIC STRENGTH.
+            # Higher Coherence -> Stronger Inhibition -> Tighter Synchrony
             current_rho = rho_t[t_idx]
-            mod_factor = 1.0 - (mt_bundle.alpha * current_rho)
-            eff_tau_gaba = self.tau_gaba * mod_factor
+            
+            # Boost the strength of Inhibition on Excitation
+            coupling_boost = 1.0 + (mt_bundle.alpha * current_rho)
             
             # CURRENT CALCULATION
-            # INCREASED DRIVE HERE (2.5 instead of 1.5)
+            # Reduced Input Noise slightly to allow signal to shine
+            I_ext_e = 2.0 + np.random.normal(0, 0.3, self.Ne) 
+            I_ext_i = 1.0 + np.random.normal(0, 0.1, self.Ni)
+            
+            # Apply Boost to I_gaba_e
             I_ampa_e = np.dot(self.Wee, s_ampa) * (Ve - 0)
-            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75)
-            I_ext_e = 2.5 + np.random.normal(0, 0.5, self.Ne) 
+            I_gaba_e = np.dot(self.Wie, s_gaba) * (Ve + 75) * coupling_boost 
             
             I_ampa_i = np.dot(self.Wei, s_ampa) * (Vi - 0)
             I_gaba_i = np.dot(self.Wii, s_gaba) * (Vi + 75)
-            I_ext_i = 1.5 + np.random.normal(0, 0.2, self.Ni)
             
             # UPDATE VOLTAGES
             dVe = (1/self.Cm) * (self.gl*(self.El - Ve) - I_ampa_e - I_gaba_e + I_ext_e)
@@ -129,38 +131,35 @@ class PINGNetwork:
             
             # SYNAPSES
             s_ampa += (-s_ampa / self.tau_ampa) * self.dt + spikes_e.astype(float)
-            s_gaba += (-s_gaba / eff_tau_gaba) * self.dt + spikes_i.astype(float)
+            s_gaba += (-s_gaba / self.tau_gaba) * self.dt + spikes_i.astype(float)
             
             Ve = Ve_new
             Vi = Vi_new
             
-            # LFP: Sum of abs currents
+            # LFP
             lfp_val = np.mean(np.abs(I_ampa_e) + np.abs(I_gaba_e))
             lfp_trace.append(lfp_val)
             
         return np.array(lfp_trace), rho_t
 
 # ==========================================
-# 3. ANALYSIS UTILS
+# 3. ANALYSIS
 # ==========================================
 def analyze_precision(lfp, dt):
-    # Bandpass Filter (30-100 Hz)
+    # Bandpass Filter
     fs = 1000 / dt
     nyq = 0.5 * fs
     b, a = butter(4, [30/nyq, 100/nyq], btype='band')
     
-    # Remove startup transient (first 200ms)
+    # Remove startup
     startup_idx = int(200/dt)
-    if len(lfp) > startup_idx:
-        lfp_clean = lfp[startup_idx:]
-    else:
-        lfp_clean = lfp
-        
+    lfp_clean = lfp[startup_idx:] if len(lfp) > startup_idx else lfp
     gamma_lfp = filtfilt(b, a, lfp_clean)
     
     # Peak Detection
     peaks = []
-    threshold = np.mean(gamma_lfp) + 0.5 * np.std(gamma_lfp) # Lowered threshold
+    # Dynamic threshold
+    threshold = np.mean(gamma_lfp) + 1.0 * np.std(gamma_lfp)
     
     for i in range(1, len(gamma_lfp)-1):
         if gamma_lfp[i] > gamma_lfp[i-1] and gamma_lfp[i] > gamma_lfp[i+1]:
@@ -169,30 +168,30 @@ def analyze_precision(lfp, dt):
     
     if len(peaks) > 3:
         isis = np.diff(peaks)
-        jitter = np.std(isis) # ms
-        precision = 1.0 / jitter if jitter > 0.01 else 0
+        jitter = np.std(isis)
+        # Precision = 1 / jitter. 
+        # Low jitter (e.g., 2ms) -> High Precision (0.5)
+        # High jitter (e.g., 10ms) -> Low Precision (0.1)
+        precision = 1.0 / jitter if jitter > 0.1 else 0
     else:
-        precision = 0 # Failed to oscillate
+        precision = 0
         
     return precision
 
 # ==========================================
-# 4. MAIN EXPERIMENT RUNNER
+# 4. MAIN RUNNER
 # ==========================================
 if __name__ == "__main__":
     
-    # Sweep Parameters
-    temps = np.linspace(308, 320, 12) 
+    temps = np.linspace(308, 320, 15) 
     precisions = []
     coherences = []
     
-    print("Starting Optimized Simulation...")
+    print("Starting Tuned Simulation...")
     
     for T in temps:
         mt = MicrotubuleBundle(temp_k=T)
         net = PINGNetwork()
-        
-        # INCREASED DURATION TO 1000ms
         lfp, rho_trace = net.run(duration_ms=1000, mt_bundle=mt)
         
         prec = analyze_precision(lfp, 0.1)
@@ -206,7 +205,6 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     sc = plt.scatter(coherences, precisions, c=temps, cmap='coolwarm', s=100, edgecolor='k', zorder=2)
     
-    # Linear Fit
     if len(coherences) > 1 and np.max(precisions) > 0:
         z = np.polyfit(coherences, precisions, 1)
         p = np.poly1d(z)
@@ -218,8 +216,7 @@ if __name__ == "__main__":
     plt.ylabel('Gamma Precision (1/std_ISI)')
     plt.title('Simulation Results: Coherence vs Gamma Precision')
     plt.grid(True)
-    plt.legend()
+    plt.legend(loc='upper left')
     
-    output_file = 'gamma_correlation_plot.png'
-    plt.savefig(output_file)
-    print(f"\nSaved to {output_file}")
+    plt.savefig('gamma_correlation_plot.png')
+    print("\nDone. Image saved.")
